@@ -1,3 +1,4 @@
+import bcrypt
 from flask import Flask, jsonify, request
 from models.user import User
 from database import db
@@ -6,7 +7,7 @@ from flask_login import LoginManager, login_user, current_user, logout_user, log
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = "key"
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'    # config fixa para caminho do banco
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:admin123@127.0.0.1:3306/flask-crud'    # config fixa para caminho do banco
 
 login_manager = LoginManager()
 db.init_app(app) 
@@ -29,11 +30,10 @@ def login():
     username = data.get("username")
     password = data.get("password")
 
-    print("Recebido:", username, password)
-
     if username and password:
         user = User.query.filter_by(username=username).first()   # (Recupera em formato de lista) filter() ou filter_by() | first() recupera o primeiro, pode se usar all() para recuperar todos os objetos
-        if user and user.password == password:
+        
+        if user and bcrypt.checkpw(str.encode(password), str.encode(user.password)):
             login_user(user)
             print(current_user.is_authenticated)
             return jsonify({"message":"Autenticação realizada com sucesso!"})
@@ -56,7 +56,8 @@ def create_user():
     password = data.get("password")
 
     if username and password:
-        user = User(username=username, password=password)
+        hashed_password = bcrypt.hashpw(str.encode(password), bcrypt.gensalt())     # Criptografando a senha com a biblioteca BCrypt do Python, e a função Hashed da mesma
+        user = User(username=username, password=hashed_password, role='user')
         db.session.add(user)
         db.session.commit()
         return jsonify({"message": "Usuário cadastrado com sucesso!"})
@@ -78,6 +79,9 @@ def update_user(id_user):
     data = request.json
     user = User.query.get(id_user)
 
+    if id_user != current_user.id and current_user.role == "user":
+        return jsonify({"message": "Operação não permitida!"}), 403
+    
     if user and data.get("password"):
         user.password = data.get("password")
         db.session.commit(
@@ -92,6 +96,8 @@ def update_user(id_user):
 def delete_user(id_user):
     user = User.query.get(id_user)
 
+    if current_user.role != 'admin':
+        return jsonify({"message": "Operação não permitida!"}), 403
     if id_user == current_user.id:
         return jsonify({"message": "Deleção não permitida!!!"}), 403   # O usuário não pode deletar a si mesmo se não o sistema fica inacessível...
 
